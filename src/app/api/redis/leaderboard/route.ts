@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import neo4j from 'neo4j-driver';
-import { createClient } from 'redis';
+import { redis } from '@/lib/redis';
 
 const driver = neo4j.driver(
   process.env.NEO4J_URI || 'bolt://localhost:7687',
@@ -9,16 +9,6 @@ const driver = neo4j.driver(
     process.env.NEO4J_PASSWORD || 'password'
   )
 );
-
-const redis = createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
-});
-
-// Connect to Redis
-redis.on('error', (err) => console.log('Redis Client Error', err));
-if (!redis.isOpen) {
-  redis.connect();
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
