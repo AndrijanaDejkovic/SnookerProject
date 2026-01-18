@@ -1,18 +1,38 @@
 import { NextResponse } from 'next/server';
-import neo4j from 'neo4j-driver';
+import { neo4jDriver, database } from '@/lib/neo4j';
 
-const driver = neo4j.driver(
-  process.env.NEO4J_URI || 'bolt://localhost:7687',
-  neo4j.auth.basic(
-    process.env.NEO4J_USERNAME || 'neo4j',
-    process.env.NEO4J_PASSWORD || 'password'
-  )
-);
+export async function GET() {
+  const session = neo4jDriver.session({ database });
+
+  try {
+    // Fetch all players
+    const result = await session.run(`
+      MATCH (p:Player)
+      RETURN p.id as id, p.name as name, p.nationality as country
+      ORDER BY p.name
+      LIMIT 100
+    `);
+
+    const players = result.records.map(record => ({
+      id: record.get('id'),
+      name: record.get('name'),
+      country: record.get('country'),
+    }));
+
+    return NextResponse.json(players);
+  } catch (error) {
+    console.error('Error fetching players:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch players', details: error instanceof Error ? error.message : 'Unknown error' },
+      { status: 500 }
+    );
+  } finally {
+    await session.close();
+  }
+}
 
 export async function POST(request: Request) {
-  const session = driver.session({
-    database: process.env.NEO4J_DATABASE || 'neo4j'
-  });
+  const session = neo4jDriver.session({ database });
 
   try {
     const body = await request.json();
@@ -71,47 +91,6 @@ export async function POST(request: Request) {
         error: error instanceof Error ? error.message : 'Unknown error',
         hint: 'Check your Neo4j connection and request body format'
       },
-      { status: 500 }
-    );
-  } finally {
-    await session.close();
-  }
-}
-
-// GET endpoint to list all players
-export async function GET() {
-  const session = driver.session({
-    database: process.env.NEO4J_DATABASE || 'neo4j'
-  });
-
-  try {
-    const query = `
-      MATCH (p:Player)
-      RETURN p.id as id,
-             p.name as name,
-             p.nationality as nationality,
-             p.dateOfBirth as dateOfBirth,
-             p.professionalSince as professionalSince,
-             p.createdAt as createdAt
-      ORDER BY p.name ASC
-    `;
-
-    const result = await session.run(query);
-
-    const players = result.records.map(record => record.toObject());
-
-    return NextResponse.json(
-      {
-        success: true,
-        count: players.length,
-        data: players
-      },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Error fetching players:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   } finally {

@@ -1,16 +1,9 @@
 import { NextResponse } from 'next/server';
-import neo4j from 'neo4j-driver';
+import { neo4jDriver, database } from '@/lib/neo4j';
 import { redis } from '@/lib/redis';
 
-const driver = neo4j.driver(
-  process.env.NEO4J_URI || 'bolt://localhost:7687',
-  neo4j.auth.basic(
-    process.env.NEO4J_USERNAME || 'neo4j',
-    process.env.NEO4J_PASSWORD || 'password'
-  )
-);
-
 export async function GET(request: Request) {
+  const session = neo4jDriver.session({ database });
   const { searchParams } = new URL(request.url);
   const playerId = searchParams.get('playerId');
   const limit = parseInt(searchParams.get('limit') || '50');
@@ -66,9 +59,7 @@ export async function GET(request: Request) {
     }
 
     // Calculate fresh leaderboard from Neo4j (always get ALL players)
-    const session = driver.session({
-      database: process.env.NEO4J_DATABASE || 'neo4j'
-    });
+    // reuse existing session (do not redeclare `session`)
 
     const query = `
       // Calculate rankings for all players based on last 365 days
