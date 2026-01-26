@@ -1,6 +1,15 @@
 // WebSocket manager for live match updates
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
+import { NextApiResponse } from 'next';
+
+export interface NextApiResponseServerIO extends NextApiResponse {
+  socket: {
+    server: {
+      io: SocketIOServer;
+    } & HTTPServer;
+  };
+}
 
 let io: SocketIOServer | null = null;
 

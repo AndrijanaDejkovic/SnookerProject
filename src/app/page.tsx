@@ -47,6 +47,9 @@ export default function Home() {
               <Link href="/matches" className="text-gray-700 hover:text-green-700 font-medium">
                 RESULTS
               </Link>
+              <Link href="/admin" className="text-gray-700 hover:text-green-700 font-medium">
+                ADMIN
+              </Link>
               <Button className="bg-green-700 hover:bg-green-800">
                 <Search className="w-4 h-4 mr-2" />
                 SEARCH

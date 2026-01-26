@@ -39,6 +39,11 @@ interface MatchUpdate {
   timestamp: string;
 }
 
+interface PlayerOption {
+  id: string;
+  name: string;
+}
+
 export default function LiveScorePage() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [matchId, setMatchId] = useState<string>('');
@@ -49,6 +54,8 @@ export default function LiveScorePage() {
   const [player1Id, setPlayer1Id] = useState('');
   const [player2Id, setPlayer2Id] = useState('');
   const [bestOf, setBestOf] = useState(7);
+  const [allPlayers, setAllPlayers] = useState<PlayerOption[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     // Initialize socket connection
@@ -90,11 +97,35 @@ export default function LiveScorePage() {
     };
   }, []);
 
+  useEffect(() => {
+    // Fetch all players for quick selection
+    const fetchPlayers = async () => {
+      try {
+        const response = await fetch('/api/neo4j/players/create');
+        if (response.ok) {
+          const data = await response.json();
+          setAllPlayers(data);
+        }
+      } catch (error) {
+        console.warn('Failed to fetch players:', error);
+      }
+    };
+
+    fetchPlayers();
+  }, []);
+
   const startMatch = async () => {
     if (!player1Id || !player2Id) {
       alert('Please provide both player IDs');
       return;
     }
+
+    if (player1Id === player2Id) {
+      alert('Players must be different');
+      return;
+    }
+
+    setLoading(true);
 
     try {
       const response = await fetch('/api/redis/live/simulate', {
@@ -122,6 +153,8 @@ export default function LiveScorePage() {
     } catch (error) {
       console.error('Error starting match:', error);
       alert('Failed to start match');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -167,32 +200,58 @@ export default function LiveScorePage() {
           marginBottom: '20px'
         }}>
           <h2>Start New Match</h2>
-          <div style={{ marginBottom: '10px' }}>
-            <label>Player 1 ID: </label>
-            <input 
-              type="text" 
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Player 1: </label>
+            <select 
               value={player1Id}
               onChange={(e) => setPlayer1Id(e.target.value)}
-              style={{ padding: '8px', width: '300px', marginLeft: '10px' }}
-              placeholder="Enter Player 1 UUID"
-            />
+              style={{ 
+                padding: '10px', 
+                width: '100%', 
+                maxWidth: '400px',
+                borderRadius: '5px',
+                border: '1px solid #ccc'
+              }}
+            >
+              <option value="">-- Select Player 1 --</option>
+              {allPlayers.map(player => (
+                <option key={player.id} value={player.id}>
+                  {player.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <div style={{ marginBottom: '10px' }}>
-            <label>Player 2 ID: </label>
-            <input 
-              type="text" 
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Player 2: </label>
+            <select 
               value={player2Id}
               onChange={(e) => setPlayer2Id(e.target.value)}
-              style={{ padding: '8px', width: '300px', marginLeft: '10px' }}
-              placeholder="Enter Player 2 UUID"
-            />
+              style={{ 
+                padding: '10px', 
+                width: '100%', 
+                maxWidth: '400px',
+                borderRadius: '5px',
+                border: '1px solid #ccc'
+              }}
+            >
+              <option value="">-- Select Player 2 --</option>
+              {allPlayers.filter(p => p.id !== player1Id).map(player => (
+                <option key={player.id} value={player.id}>
+                  {player.name}
+                </option>
+              ))}
+            </select>
           </div>
-          <div style={{ marginBottom: '10px' }}>
-            <label>Best of: </label>
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Best of: </label>
             <select 
               value={bestOf}
               onChange={(e) => setBestOf(Number(e.target.value))}
-              style={{ padding: '8px', marginLeft: '10px' }}
+              style={{ 
+                padding: '10px', 
+                borderRadius: '5px',
+                border: '1px solid #ccc'
+              }}
             >
               <option value={3}>Best of 3</option>
               <option value={5}>Best of 5</option>
@@ -201,20 +260,29 @@ export default function LiveScorePage() {
               <option value={11}>Best of 11</option>
             </select>
           </div>
-          <button 
-            onClick={startMatch}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#4CAF50',
-              color: 'white',
-              border: 'none',
-              borderRadius: '5px',
-              cursor: 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            Start Match
-          </button>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <button 
+              onClick={startMatch}
+              disabled={loading || !player1Id || !player2Id}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: (loading || !player1Id || !player2Id) ? '#ccc' : '#4CAF50',
+                color: 'white',
+                border: 'none',
+                borderRadius: '5px',
+                cursor: (loading || !player1Id || !player2Id) ? 'not-allowed' : 'pointer',
+                fontSize: '16px',
+                fontWeight: 'bold'
+              }}
+            >
+              {loading ? '🏃 Starting Match...' : '▶️ Start Live Match'}
+            </button>
+            {allPlayers.length === 0 && (
+              <span style={{ color: '#f44336', fontSize: '14px' }}>
+                Loading players...
+              </span>
+            )}
+          </div>
         </div>
       ) : (
         <div>

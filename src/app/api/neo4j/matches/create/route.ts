@@ -26,7 +26,9 @@ export async function POST(request: Request) {
       endTime,
       venue,
       tableNumber,
-      winner
+      winner,
+      player1Id,
+      player2Id
     } = body;
 
     // Validate required fields
@@ -67,7 +69,7 @@ export async function POST(request: Request) {
         winner: $winner
       })
       CREATE (m)-[:PLAYED_IN]->(t)
-      RETURN m
+      RETURN m.id as matchId, m
     `;
 
     const result = await session.run(query, {
@@ -84,12 +86,36 @@ export async function POST(request: Request) {
     });
 
     if (result.records.length > 0) {
-      const match = result.records[0].get('m').properties;
+      const matchRecord = result.records[0];
+      const matchId = matchRecord.get('matchId');
+      const matchProps = matchRecord.get('m')?.properties || {};
+
+      // If player IDs were provided, create COMPETED relationships linking players to the match
+      try {
+        if (player1Id) {
+          await session.run(
+            `MATCH (p:Player {id: $playerId}), (m:Match {id: $matchId})
+             CREATE (p)-[:COMPETED {won: false, framesWon: 0, framesLost: 0}]->(m)`,
+            { playerId: player1Id, matchId }
+          );
+        }
+        if (player2Id) {
+          await session.run(
+            `MATCH (p:Player {id: $playerId}), (m:Match {id: $matchId})
+             CREATE (p)-[:COMPETED {won: false, framesWon: 0, framesLost: 0}]->(m)`,
+            { playerId: player2Id, matchId }
+          );
+        }
+      } catch (relErr) {
+        console.error('Error creating player relationships for match:', relErr);
+        // don't fail the whole request if relationships couldn't be created; return match info with a warning
+      }
+
       return NextResponse.json(
         {
           success: true,
-          message: `Match "${match.id}" created successfully`,
-          data: match
+          message: `Match "${matchId}" created successfully`,
+          data: { ...matchProps, id: matchId, player1Id: player1Id || undefined, player2Id: player2Id || undefined }
         },
         { status: 201 }
       );
@@ -122,6 +148,8 @@ export async function GET() {
   try {
     const query = `
       MATCH (m:Match)-[:PLAYED_IN]->(t:Tournament)
+      OPTIONAL MATCH (p1:Player)-[:COMPETED]->(m)
+      WITH m, t, collect({id: p1.id, name: p1.name}) as playerData
       RETURN m.id as id,
              m.matchNumber as matchNumber,
              m.round as round,
@@ -131,13 +159,26 @@ export async function GET() {
              m.endTime as endTime,
              m.venue as venue,
              t.name as tournament,
-             m.winner as winner
+             m.winner as winner,
+             playerData
       ORDER BY m.startTime DESC
     `;
 
     const result = await session.run(query);
 
-    const matches = result.records.map(record => record.toObject());
+    const matches = result.records.map(record => {
+      const obj = record.toObject();
+      const players = obj.playerData || [];
+      return {
+        ...obj,
+        player1Id: players[0]?.id || undefined,
+        player2Id: players[1]?.id || undefined,
+        player1Name: players[0]?.name || 'Unknown',
+        player2Name: players[1]?.name || 'Unknown',
+        players: players.length >= 2 ? `${players[0]?.name || 'Unknown'} vs ${players[1]?.name || 'Unknown'}` : 'Unknown vs Unknown',
+        date: obj.startTime || new Date().toISOString() // Provide default date if startTime is null
+      };
+    });
 
     return NextResponse.json(
       {

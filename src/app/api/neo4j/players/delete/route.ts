@@ -25,23 +25,30 @@ export async function DELETE(request: Request) {
   });
 
   try {
-    const result = await session.run(
-      `MATCH (p:Player {id: $playerId})
-       DETACH DELETE p
-       RETURN p.name as playerName`,
+    // First, fetch the player's name to confirm existence
+    const fetchResult = await session.run(
+      `MATCH (p:Player {id: $playerId}) RETURN p.name as playerName LIMIT 1`,
       { playerId }
     );
 
-    if (result.records.length === 0) {
+    if (fetchResult.records.length === 0) {
       return NextResponse.json(
         { error: 'Player not found' },
         { status: 404 }
       );
     }
 
+    const playerName = fetchResult.records[0].get('playerName');
+
+    // Now safely delete the player
+    await session.run(
+      `MATCH (p:Player {id: $playerId}) DETACH DELETE p`,
+      { playerId }
+    );
+
     return NextResponse.json({
       success: true,
-      message: `Player ${result.records[0].get('playerName')} deleted successfully`,
+      message: `Player ${playerName} deleted successfully`,
       playerId: playerId
     });
 

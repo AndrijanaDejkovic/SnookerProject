@@ -25,19 +25,24 @@ export async function DELETE(request: Request) {
   });
 
   try {
-    const result = await session.run(
-      `MATCH (m:Match {id: $matchId})
-       DETACH DELETE m
-       RETURN m.id as matchId`,
+    // Confirm existence first
+    const exists = await session.run(
+      `MATCH (m:Match {id: $matchId}) RETURN m.id as id LIMIT 1`,
       { matchId }
     );
 
-    if (result.records.length === 0) {
+    if (exists.records.length === 0) {
       return NextResponse.json(
         { error: 'Match not found' },
         { status: 404 }
       );
     }
+
+    // Delete the match
+    await session.run(
+      `MATCH (m:Match {id: $matchId}) DETACH DELETE m`,
+      { matchId }
+    );
 
     return NextResponse.json({
       success: true,

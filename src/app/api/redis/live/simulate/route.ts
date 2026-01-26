@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import neo4j from 'neo4j-driver';
-import { broadcastMatchUpdate, broadcastFrameUpdate, broadcastScoreUpdate } from '@/lib/websocket';
 import { redis } from '@/lib/redis';
+import { broadcastMatchUpdate, broadcastFrameUpdate, broadcastScoreUpdate } from '@/lib/socket-manager';
 
 const driver = neo4j.driver(
   process.env.NEO4J_URI || 'bolt://localhost:7687',
@@ -365,7 +365,7 @@ export async function GET() {
     
     // Get details for each active match
     const matchDetails = await Promise.all(
-      activeMatchIds.map(async (matchId) => {
+      activeMatchIds.map(async (matchId: string) => {
         const matchData = await redis.hGetAll(`live:match:${matchId}`);
         return matchData ? { matchId, ...matchData } : null;
       })
