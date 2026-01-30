@@ -39,3 +39,21 @@ export const broadcastScoreUpdate = (matchId: string, data: object) => {
     console.warn('WebSocket not available for broadcasting');
   }
 };
+
+export const broadcastFrameComplete = (matchId: string, data: object) => {
+  if (globalIo) {
+    globalIo.to(matchId).emit('frame-update', data);
+    console.log(`Broadcasting frame complete for match ${matchId}:`, data);
+  } else {
+    console.warn('WebSocket not available for broadcasting');
+  }
+};
+
+export const broadcastMatchComplete = (matchId: string, data: object) => {
+  if (globalIo) {
+    globalIo.to(matchId).emit('match-update', data);
+    console.log(`Broadcasting match complete for match ${matchId}:`, data);
+  } else {
+    console.warn('WebSocket not available for broadcasting');
+  }
+};

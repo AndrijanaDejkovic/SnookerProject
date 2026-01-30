@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import neo4j from 'neo4j-driver';
 import { redis } from '@/lib/redis';
-import { broadcastMatchUpdate, broadcastFrameUpdate, broadcastScoreUpdate } from '@/lib/socket-manager';
+import { broadcastMatchUpdate, broadcastFrameUpdate, broadcastScoreUpdate, getGlobalIo } from '@/lib/socket-manager';
 
 const driver = neo4j.driver(
   process.env.NEO4J_URI || 'bolt://localhost:7687',
@@ -27,6 +27,7 @@ async function simulateFrame(
   frameNumber: number,
   bestOf: number
 ) {
+  // Create a new session for this frame that will stay open
   const session = driver.session({
     database: process.env.NEO4J_DATABASE || 'neo4j'
   });
@@ -143,82 +144,93 @@ async function simulateFrame(
           RETURN f, cw.framesWon AS winnerFrames, cl.framesWon AS loserFrames, m.winner AS matchWinner, m.status AS matchStatus
         `;
 
-        const result = await session.run(frameQuery, {
-          matchId,
-          winnerId,
-          loserId,
-          frameNumber,
-          winnerScore,
-          loserScore,
-          highestBreak: Math.max(player1Score, player2Score)
-        });
-
-        const record = result.records[0];
-        const winnerFrames = record.get('winnerFrames')?.toNumber?.() ?? 0;
-        const loserFrames = record.get('loserFrames')?.toNumber?.() ?? 0;
-        const matchWinner = record.get('matchWinner');
-
-        // Update match state in Redis
-        const matchKey = `live:match:${matchId}`;
-        await redis.hSet(matchKey, {
-          lastFrameNumber: frameNumber.toString(),
-          winnerFrames: winnerFrames.toString(),
-          loserFrames: loserFrames.toString(),
-          status: matchWinner ? 'COMPLETED' : 'LIVE'
-        });
-
-        // Broadcast frame completion
-        broadcastFrameUpdate(matchId, {
-          matchId,
-          frameNumber,
-          status: 'COMPLETED',
-          winner: {
-            id: winnerId,
-            name: winnerId === player1Id ? player1Name : player2Name,
-            score: winnerScore,
-            framesWon: winnerFrames
-          },
-          loser: {
-            id: loserId,
-            name: loserId === player1Id ? player1Name : player2Name,
-            score: loserScore,
-            framesWon: loserFrames
-          },
-          timestamp: new Date().toISOString()
-        });
-
-        // Check if match is complete
-        if (matchWinner) {
-          // Mark match as completed in Redis
-          await redis.hSet(matchKey, { status: 'COMPLETED', winner: matchWinner });
-          await redis.expire(matchKey, 86400); // Keep completed matches for 24 hours
-
-          broadcastMatchUpdate(matchId, {
+        try {
+          const result = await session.run(frameQuery, {
             matchId,
+            winnerId,
+            loserId,
+            frameNumber,
+            winnerScore,
+            loserScore,
+            highestBreak: Math.max(player1Score, player2Score)
+          });
+
+          const record = result.records[0];
+          const winnerFrames = record.get('winnerFrames')?.toNumber?.() ?? 0;
+          const loserFrames = record.get('loserFrames')?.toNumber?.() ?? 0;
+          const matchWinner = record.get('matchWinner');
+
+          // Update match state in Redis
+          const matchKey = `live:match:${matchId}`;
+          await redis.hSet(matchKey, {
+            lastFrameNumber: frameNumber.toString(),
+            winnerFrames: winnerFrames.toString(),
+            loserFrames: loserFrames.toString(),
+            status: matchWinner ? 'COMPLETED' : 'LIVE'
+          });
+
+          // Broadcast frame completion
+          broadcastFrameUpdate(matchId, {
+            matchId,
+            frameNumber,
             status: 'COMPLETED',
             winner: {
-              id: matchWinner,
-              name: matchWinner === player1Id ? player1Name : player2Name,
+              id: winnerId,
+              name: winnerId === player1Id ? player1Name : player2Name,
+              score: winnerScore,
               framesWon: winnerFrames
             },
-            message: `Match completed! ${matchWinner === player1Id ? player1Name : player2Name} wins ${winnerFrames}-${loserFrames}`,
+            loser: {
+              id: loserId,
+              name: loserId === player1Id ? player1Name : player2Name,
+              score: loserScore,
+              framesWon: loserFrames
+            },
             timestamp: new Date().toISOString()
           });
 
-          // Stop simulation and clean up
-          const simId = activeSimulations.get(matchId);
-          if (simId) {
-            clearTimeout(simId);
-            activeSimulations.delete(matchId);
-          }
+          // Check if match is complete
+          if (matchWinner) {
+            // Mark match as completed in Redis
+            await redis.hSet(matchKey, { status: 'COMPLETED', winner: matchWinner });
+            await redis.expire(matchKey, 86400); // Keep completed matches for 24 hours
 
-          // Remove match from active list in Redis
-          await redis.sRem('live:matches:active', matchId);
-        } else {
-          // Start next frame after 5 seconds
-          setTimeout(() => {
-            simulateFrame(matchId, player1Id, player2Id, player1Name, player2Name, frameNumber + 1, bestOf);
-          }, 5000);
+            broadcastMatchUpdate(matchId, {
+              matchId,
+              status: 'COMPLETED',
+              winner: {
+                id: matchWinner,
+                name: matchWinner === player1Id ? player1Name : player2Name,
+                framesWon: winnerFrames
+              },
+              message: `Match completed! ${matchWinner === player1Id ? player1Name : player2Name} wins ${winnerFrames}-${loserFrames}`,
+              timestamp: new Date().toISOString()
+            });
+
+            // Stop simulation and clean up
+            const simId = activeSimulations.get(matchId);
+            if (simId) {
+              clearTimeout(simId);
+              activeSimulations.delete(matchId);
+            }
+
+            // Remove match from active list in Redis
+            await redis.sRem('live:matches:active', matchId);
+            
+            // Close session now that match is complete
+            await session.close();
+          } else {
+            // Close current session before starting next frame
+            await session.close();
+            
+            // Start next frame after 5 seconds
+            setTimeout(() => {
+              simulateFrame(matchId, player1Id, player2Id, player1Name, player2Name, frameNumber + 1, bestOf);
+            }, 5000);
+          }
+        } catch (error) {
+          console.error('Error saving frame to database:', error);
+          await session.close();
         }
       }
     }, 3000); // Score update every 3 seconds
@@ -228,13 +240,21 @@ async function simulateFrame(
     
     // Clean up on error
     await redis.del(`live:match:${matchId}:frame:${frameNumber}`);
-  } finally {
     await session.close();
   }
 }
 
 // POST: Start live match simulation
 export async function POST(request: Request) {
+  // Check if WebSocket is initialized
+  const io = getGlobalIo();
+  if (!io) {
+    console.warn('⚠️ WebSocket server not initialized! Clients may not receive updates.');
+    console.warn('💡 Make sure to visit /api/socket first to initialize the WebSocket server.');
+  } else {
+    console.log('✅ WebSocket server is ready for broadcasting');
+  }
+
   const session = driver.session({
     database: process.env.NEO4J_DATABASE || 'neo4j'
   });
@@ -311,23 +331,35 @@ export async function POST(request: Request) {
     // Add to active matches set
     await redis.sAdd('live:matches:active', matchId);
 
-    // Broadcast match started
-    broadcastMatchUpdate(matchId, {
-      matchId,
-      status: 'LIVE',
-      players: {
-        player1: { id: player1Id, name: player1Name, framesWon: 0 },
-        player2: { id: player2Id, name: player2Name, framesWon: 0 }
-      },
-      bestOf: bestOf || 7,
-      message: `Live match started: ${player1Name} vs ${player2Name}`,
-      timestamp: new Date().toISOString()
-    });
+    // Broadcast match started (check WebSocket is ready)
+    const io = getGlobalIo();
+    if (io) {
+      console.log('✅ Broadcasting match start...');
+      broadcastMatchUpdate(matchId, {
+        matchId,
+        status: 'LIVE',
+        players: {
+          player1: { id: player1Id, name: player1Name, framesWon: 0 },
+          player2: { id: player2Id, name: player2Name, framesWon: 0 }
+        },
+        bestOf: bestOf || 7,
+        message: `Live match started: ${player1Name} vs ${player2Name}`,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.warn('⚠️ WebSocket not ready, match start broadcast skipped');
+    }
 
-    // Start simulation after 3 seconds
+    // Start simulation after 1 second (give WebSocket time if it was just initialized)
     const simulationTimeout = setTimeout(() => {
+      const ioCheck = getGlobalIo();
+      if (ioCheck) {
+        console.log('✅ WebSocket ready, starting frame simulation...');
+      } else {
+        console.warn('⚠️ WebSocket still not ready, but starting simulation anyway');
+      }
       simulateFrame(matchId, player1Id, player2Id, player1Name, player2Name, 1, bestOf || 7);
-    }, 3000);
+    }, 1000);
 
     activeSimulations.set(matchId, simulationTimeout);
 

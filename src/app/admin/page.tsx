@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Modal, PlayerForm, MatchForm, TournamentForm } from '@/components/admin/forms';
+import { Modal, PlayerForm, MatchForm, TournamentForm, FrameForm } from '@/components/admin/forms';
 
 interface Match {
   id: string;
@@ -247,8 +247,16 @@ function MatchesSection() {
       </div>
       <MatchesTable 
         key={refreshKey}
-        onEdit={(match) => {
-          setEditingMatch(match);
+        onEdit={async (match) => {
+          try {
+            const res = await fetch(`/api/neo4j/matches/${encodeURIComponent(match.id)}`);
+            const json = await res.json();
+            const full = json.data || json.match || json;
+            setEditingMatch(full || match);
+          } catch (err) {
+            console.error('Failed to fetch match details:', err);
+            setEditingMatch(match);
+          }
           setShowModal(true);
         }}
         onRefresh={() => setRefreshKey(prev => prev + 1)}
@@ -329,6 +337,7 @@ function MatchesTable({ onEdit, onRefresh }: { onEdit: (match: Match) => void; o
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Players</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Best Of</th>
@@ -339,13 +348,16 @@ function MatchesTable({ onEdit, onRefresh }: { onEdit: (match: Match) => void; o
         <tbody className="bg-white divide-y divide-gray-200">
           {matches.length === 0 ? (
             <tr>
-              <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+              <td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-500">
                 No matches found
               </td>
             </tr>
           ) : (
             matches.map((match: Match) => (
               <tr key={match.id}>
+                <td className="px-6 py-4 text-sm font-mono text-gray-600">
+                  {match.id}
+                </td>
                 <td className="px-6 py-4 text-sm font-medium text-gray-900">
                   {match.startTime ? new Date(match.startTime).toLocaleDateString('en-US', {
                     year: 'numeric',
@@ -495,16 +507,19 @@ function TournamentsTable({ onEdit, onRefresh }: { onEdit: (tournament: {id: str
   const handleDelete = async (tournamentId: string) => {
     if (!confirm('Are you sure you want to delete this tournament?')) return;
     try {
-      const response = await fetch(`/api/neo4j/tournaments/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tournamentId }),
+      const response = await fetch(`/api/neo4j/tournaments/delete?tournamentId=${encodeURIComponent(tournamentId)}`, {
+        method: 'DELETE',
       });
+
       if (response.ok) {
         alert('Tournament deleted successfully!');
         onRefresh();
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert(err.error || 'Error deleting tournament');
       }
-    } catch {
+    } catch (error) {
+      console.error('Delete tournament error:', error);
       alert('Error deleting tournament');
     }
   };
@@ -576,42 +591,236 @@ function TournamentsTable({ onEdit, onRefresh }: { onEdit: (tournament: {id: str
 
 // Frames Section
 function FramesSection() {
+  const [frames, setFrames] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [editingFrame, setEditingFrame] = useState<any>(null);
+
+  React.useEffect(() => {
+    fetchFrames();
+  }, []);
+
+  const fetchFrames = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/frames/all');
+      if (response.ok) {
+        const data = await response.json();
+        setFrames(data.frames || []);
+      }
+    } catch (error) {
+      console.error('Error fetching frames:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddFrame = () => {
+    setEditingFrame(null);
+    setShowModal(true);
+  };
+
+  const handleEditFrame = (frame: any) => {
+    setEditingFrame(frame);
+    setShowModal(true);
+  };
+
+  const handleSaveFrame = async (frameData: any) => {
+    try {
+      const url = editingFrame 
+        ? '/api/neo4j/frames/update'
+        : '/api/neo4j/frames/create';
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingFrame ? { ...frameData, id: editingFrame.id } : frameData),
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success !== false) {
+        setShowModal(false);
+        setEditingFrame(null);
+        fetchFrames();
+      } else {
+        console.error('Error saving frame:', result.error || 'Unknown error');
+        alert('Error saving frame: ' + (result.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Error saving frame:', error);
+      alert('Error saving frame: ' + error);
+    }
+  };
+
+  const handleDeleteFrame = async (frameId: string) => {
+    if (!confirm('Are you sure you want to delete this frame?')) return;
+
+    try {
+      const response = await fetch('/api/neo4j/frames/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: frameId }),
+      });
+
+      if (response.ok) {
+        fetchFrames();
+      }
+    } catch (error) {
+      console.error('Error deleting frame:', error);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Frames Management</h2>
-      <FramesTable />
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">Frames Management</h2>
+        <button
+          onClick={handleAddFrame}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Add Frame
+        </button>
+      </div>
+
+      <FramesTable 
+        frames={frames}
+        loading={loading}
+        onEdit={handleEditFrame}
+        onDelete={handleDeleteFrame}
+      />
+
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title={editingFrame ? 'Edit Frame' : 'Add New Frame'}
+      >
+        <FrameForm
+          initialData={editingFrame}
+          onSubmit={handleSaveFrame}
+          onCancel={() => setShowModal(false)}
+        />
+      </Modal>
     </div>
   );
 }
 
-function FramesTable() {
-  const [loading, setLoading] = React.useState(true);
-
-  React.useEffect(() => {
-    setLoading(false);
-  }, []);
-
+function FramesTable({ frames, loading, onEdit, onDelete }: {
+  frames: any[];
+  loading: boolean;
+  onEdit: (frame: any) => void;
+  onDelete: (frameId: string) => void;
+}) {
   if (loading) {
-    return <div className="text-center py-4">Loading...</div>;
+    return <div className="text-center py-4">Loading frames...</div>;
   }
+
+  const formatDuration = (duration: any) => {
+    if (!duration) return '-';
+    let totalSeconds = 0;
+
+    // Handle Neo4j duration object (may have Integer-like properties) or ISO string
+    if (typeof duration === 'object' && duration !== null && ('seconds' in duration || 'minutes' in duration)) {
+      // seconds field might be a Neo4j Integer or a plain number/string
+      const secsField: any = (duration as any).seconds;
+      const minsField: any = (duration as any).minutes;
+
+      const secs = (secsField !== undefined && secsField !== null)
+        ? (typeof secsField === 'object' && typeof secsField.toNumber === 'function' ? secsField.toNumber() : Number(secsField))
+        : 0;
+
+      const mins = (minsField !== undefined && minsField !== null)
+        ? (typeof minsField === 'object' && typeof minsField.toNumber === 'function' ? minsField.toNumber() : Number(minsField))
+        : 0;
+
+      totalSeconds = mins * 60 + secs;
+
+    } else if (typeof duration === 'string' && duration.startsWith('PT')) {
+      // ISO 8601 duration format: PT10M30S
+      const match = duration.match(/PT(?:(\d+)M)?(?:(\d+)S)?/);
+      if (match) {
+        const minutes = parseInt(match[1] || '0', 10);
+        const seconds = parseInt(match[2] || '0', 10);
+        totalSeconds = minutes * 60 + seconds;
+      }
+    } else if (typeof duration === 'number') {
+      // Plain number in seconds
+      totalSeconds = duration;
+    } else {
+      // Fallback: try to coerce to number
+      const asNum = Number(duration);
+      totalSeconds = Number.isFinite(asNum) ? asNum : 0;
+    }
+
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tournament</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Match</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Frame #</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Winner</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Score</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Break</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          <tr>
-            <td colSpan={4} className="px-6 py-4 text-center text-sm text-gray-500">
-              Frames are managed through match creation. Simulate a match on the Live Match page to generate frames.
-            </td>
-          </tr>
+          {frames.length === 0 ? (
+            <tr>
+              <td colSpan={8} className="px-6 py-4 text-center text-sm text-gray-500">
+                No frames found. Click "Add Frame" to create one.
+              </td>
+            </tr>
+          ) : (
+            frames.map((frame) => (
+              <tr key={frame.id} className="hover:bg-gray-50">
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {frame.tournamentName || 'No Tournament'}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  <div className="text-sm font-medium">{frame.player1Name} vs {frame.player2Name}</div>
+                  <div className="text-xs text-gray-500">ID: {frame.matchId}</div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {frame.frameNumber}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {frame.winnerName || 'TBD'}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {frame.winnerScore || 0} - {frame.loserScore || 0}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {frame.highestBreak || 0}
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-900">
+                  {frame.duration ? formatDuration(frame.duration) : '-'}
+                </td>
+                <td className="px-6 py-4 text-sm space-x-2">
+                  <button
+                    onClick={() => onEdit(frame)}
+                    className="text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => onDelete(frame.id)}
+                    className="text-red-600 hover:text-red-800 font-medium"
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

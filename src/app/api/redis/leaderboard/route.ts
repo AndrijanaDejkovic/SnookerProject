@@ -62,16 +62,34 @@ export async function GET(request: Request) {
     // reuse existing session (do not redeclare `session`)
 
     const query = `
-      // Calculate rankings for all players based on last 365 days
+      // Calculate rankings for all players based on tournaments they won (Final matches)
       MATCH (p:Player)
-      OPTIONAL MATCH (p)-[participated:PARTICIPATED_IN]->(t:Tournament)
-      WHERE t.endDate >= date() - duration({days: 365})
+      
+      // Find all tournaments won by this player (Final matches with player as winner)
+      OPTIONAL MATCH (m:Match {round: 'Final', status: 'COMPLETED'})-[:WON_BY]->(p:Player)
+      OPTIONAL MATCH (m)-[:PLAYED_IN]->(t:Tournament)
+      WHERE t.endDate >= date() - duration({days: 365}) OR t.endDate IS NULL
+      
       WITH p,
-           count(CASE WHEN participated.finalPosition = 1 THEN 1 END) AS tournamentsWon,
-           sum(participated.prize) AS totalPrize,
-           count(t) AS tournamentsPlayed,
-           sum(participated.matchesWon) AS totalMatches,
-           sum(participated.framesWon) AS totalFrames
+           count(DISTINCT t) AS tournamentsWon,
+           sum(coalesce(t.prizePool, 1000)) AS totalPrize,
+           collect(DISTINCT t.id) AS wonTournamentIds
+      
+      // Get tournament participation count
+      WITH p, tournamentsWon, totalPrize, wonTournamentIds
+      OPTIONAL MATCH (p)-[:COMPETED]->(m2:Match)-[:PLAYED_IN]->(t2:Tournament)
+      WHERE t2.endDate >= date() - duration({days: 365}) OR t2.endDate IS NULL
+      
+      WITH p, tournamentsWon, totalPrize, wonTournamentIds,
+           count(DISTINCT t2) AS tournamentsPlayed,
+           count(DISTINCT m2) AS totalMatches
+      
+      // Get frames won
+      WITH p, tournamentsWon, totalPrize, wonTournamentIds, tournamentsPlayed, totalMatches
+      OPTIONAL MATCH (p)-[:WON_FRAME]->(f:Frame)
+      
+      WITH p, tournamentsWon, totalPrize, wonTournamentIds, tournamentsPlayed, totalMatches,
+           count(DISTINCT f) AS totalFrames
       
       // Rank players: first by tournaments won, then by prize money
       ORDER BY tournamentsWon DESC, totalPrize DESC, p.name ASC

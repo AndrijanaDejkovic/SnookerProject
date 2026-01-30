@@ -58,43 +58,72 @@ export default function LiveScorePage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Initialize socket connection
-    const socketInstance = io(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000', {
-      path: '/api/socket'
-    });
+    // First, initialize the WebSocket server by hitting the endpoint
+    const initWebSocket = async () => {
+      try {
+        console.log('🔌 Initializing WebSocket server...');
+        await fetch('/api/socket');
+        console.log('✅ WebSocket server initialized');
+      } catch (error) {
+        console.error('❌ Failed to initialize WebSocket:', error);
+      }
 
-    socketInstance.on('connect', () => {
-      console.log('Connected to WebSocket');
-      setConnected(true);
-    });
+      // Small delay to ensure server is ready
+      setTimeout(() => {
+        console.log('🔌 Connecting to WebSocket...');
+        
+        // Initialize socket connection
+        const socketInstance = io(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000', {
+          path: '/api/socket',
+          transports: ['polling', 'websocket'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+        });
 
-    socketInstance.on('disconnect', () => {
-      console.log('Disconnected from WebSocket');
-      setConnected(false);
-    });
+        socketInstance.on('connect', () => {
+          console.log('✅ Connected to WebSocket, ID:', socketInstance.id);
+          setConnected(true);
+        });
 
-    socketInstance.on('match-update', (data: MatchUpdate) => {
-      console.log('Match update:', data);
-      setCurrentMatch(data);
-    });
+        socketInstance.on('disconnect', (reason) => {
+          console.log('❌ Disconnected from WebSocket:', reason);
+          setConnected(false);
+        });
 
-    socketInstance.on('score-update', (data: ScoreUpdate) => {
-      console.log('Score update:', data);
-      setCurrentFrame(data);
-    });
+        socketInstance.on('connect_error', (error) => {
+          console.error('❌ Connection error:', error);
+        });
 
-    socketInstance.on('frame-update', (data: FrameUpdate) => {
-      console.log('Frame completed:', data);
-      setFrameHistory(prev => [...prev, data]);
-      // Reset current frame
-      setCurrentFrame(null);
-    });
+        socketInstance.on('match-update', (data: MatchUpdate) => {
+          console.log('📢 Match update received:', data);
+          setCurrentMatch(data);
+        });
 
-    setSocket(socketInstance);
+        socketInstance.on('score-update', (data: ScoreUpdate) => {
+          console.log('📢 Score update received:', data);
+          setCurrentFrame(data);
+        });
+
+        socketInstance.on('frame-update', (data: FrameUpdate) => {
+          console.log('📢 Frame completed:', data);
+          setFrameHistory(prev => [...prev, data]);
+          // Reset current frame
+          setCurrentFrame(null);
+        });
+
+        setSocket(socketInstance);
+      }, 500);
+    };
+
+    initWebSocket();
 
     return () => {
-      socketInstance.disconnect();
+      if (socket) {
+        socket.disconnect();
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -128,7 +157,15 @@ export default function LiveScorePage() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/redis/live/simulate', {
+      // Refresh WebSocket server before starting match
+      console.log('🔄 Ensuring WebSocket server is ready...');
+      await fetch('/api/socket');
+      console.log('✅ WebSocket server ready');
+      
+      // Small delay to ensure server is fully initialized
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const response = await fetch('/api/live-simulate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -145,6 +182,7 @@ export default function LiveScorePage() {
         
         // Join match room
         if (socket) {
+          console.log('🎯 Joining match room:', newMatchId);
           socket.emit('join-match', newMatchId);
         }
       } else {

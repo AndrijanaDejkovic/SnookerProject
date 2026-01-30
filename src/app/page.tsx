@@ -45,7 +45,10 @@ export default function Home() {
                 TOURNAMENTS
               </Link>
               <Link href="/matches" className="text-gray-700 hover:text-green-700 font-medium">
-                RESULTS
+                MATCHES
+              </Link>
+              <Link href="/leaderboard" className="text-gray-700 hover:text-green-700 font-medium">
+                LEADERBOARD
               </Link>
               <Link href="/admin" className="text-gray-700 hover:text-green-700 font-medium">
                 ADMIN
@@ -125,6 +128,23 @@ export default function Home() {
             <CardContent>
               <Link href="/live">
                 <Button className="w-full">View Live Matches</Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Trophy className="mr-2 h-5 w-5 text-yellow-600" />
+                Leaderboard
+              </CardTitle>
+              <CardDescription>
+                View player rankings and tournament winners
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Link href="/leaderboard">
+                <Button className="w-full">View Rankings</Button>
               </Link>
             </CardContent>
           </Card>

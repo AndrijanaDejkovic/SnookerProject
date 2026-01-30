@@ -52,7 +52,7 @@ export async function PUT(request: Request) {
       const query = `
         MATCH (m:Match {id: $matchId})
         SET ${setFields.join(', ')}
-        RETURN m.id as id, m.winner as winner, m.bestOf as bestOf, m.status as status
+        RETURN m.id as id, m.winner as winner, m.bestOf as bestOf, m.status as status, m.round as round
       `;
 
       const result = await session.run(query, params);
@@ -65,15 +65,44 @@ export async function PUT(request: Request) {
       }
 
       const match = result.records[0];
+      const matchData = {
+        id: match.get('id'),
+        winner: match.get('winner'),
+        bestOf: match.get('bestOf'),
+        status: match.get('status'),
+        round: match.get('round')
+      };
+
+      // If this is a completed Final match with a winner, just update the tournament status
+      if (status === 'COMPLETED' && winner && matchData.round === 'Final') {
+        console.log('Final match completed with winner:', { winner });
+        // Update tournament status to COMPLETED
+        try {
+          const updateTournamentQuery = `
+            MATCH (m:Match {id: $matchId})-[:PLAYED_IN]->(t:Tournament)
+            SET t.status = 'COMPLETED', t.winner = $winnerId
+            RETURN t.name as tournamentName, t.id as tournamentId
+          `;
+          
+          const tournamentResult = await session.run(updateTournamentQuery, { 
+            matchId, 
+            winnerId: winner 
+          });
+          
+          if (tournamentResult.records.length > 0) {
+            const rec = tournamentResult.records[0];
+            console.log(`✅ Tournament marked as COMPLETED: ${rec.get('tournamentName')}`);
+            console.log(`   Winner: ${winner} - This will show in leaderboard!`);
+          }
+        } catch (error) {
+          console.error('Error updating tournament status:', error);
+        }
+      }
+
       return NextResponse.json({
         success: true,
         message: 'Match updated successfully',
-        match: {
-          id: match.get('id'),
-          winner: match.get('winner'),
-          bestOf: match.get('bestOf'),
-          status: match.get('status')
-        }
+        match: matchData
       });
 
     } finally {

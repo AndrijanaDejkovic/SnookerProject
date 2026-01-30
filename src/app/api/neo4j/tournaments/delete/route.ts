@@ -25,23 +25,30 @@ export async function DELETE(request: Request) {
   });
 
   try {
-    const result = await session.run(
-      `MATCH (t:Tournament {id: $tournamentId})
-       DETACH DELETE t
-       RETURN t.name as tournamentName`,
+    // Fetch the tournament name first so we can return it after deletion
+    const check = await session.run(
+      `MATCH (t:Tournament {id: $tournamentId}) RETURN t.name as tournamentName LIMIT 1`,
       { tournamentId }
     );
 
-    if (result.records.length === 0) {
+    if (check.records.length === 0) {
       return NextResponse.json(
         { error: 'Tournament not found' },
         { status: 404 }
       );
     }
 
+    const tournamentName = check.records[0].get('tournamentName');
+
+    // Now delete the tournament node
+    await session.run(
+      `MATCH (t:Tournament {id: $tournamentId}) DETACH DELETE t`,
+      { tournamentId }
+    );
+
     return NextResponse.json({
       success: true,
-      message: `Tournament ${result.records[0].get('tournamentName')} deleted successfully`,
+      message: `Tournament ${tournamentName} deleted successfully`,
       tournamentId: tournamentId
     });
 
