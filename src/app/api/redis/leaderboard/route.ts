@@ -66,8 +66,7 @@ export async function GET(request: Request) {
       MATCH (p:Player)
       
       // Find all tournaments won by this player (Final matches with player as winner)
-      OPTIONAL MATCH (m:Match {round: 'Final', status: 'COMPLETED'})-[:WON_BY]->(p:Player)
-      OPTIONAL MATCH (m)-[:PLAYED_IN]->(t:Tournament)
+      OPTIONAL MATCH (p)<-[:WON_BY]-(m:Match {round: 'Final', status: 'COMPLETED'})-[:PLAYED_IN]->(t:Tournament)
       WHERE t.endDate >= date() - duration({days: 365}) OR t.endDate IS NULL
       
       WITH p,

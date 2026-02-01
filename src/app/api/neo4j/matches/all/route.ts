@@ -21,7 +21,7 @@ export async function GET() {
       MATCH (m:Match)
       OPTIONAL MATCH (m)<-[:COMPETED]-(p1:Player)
       OPTIONAL MATCH (m)<-[:COMPETED]-(p2:Player)
-      OPTIONAL MATCH (m)-[:PART_OF_TOURNAMENT]->(t:Tournament)
+      OPTIONAL MATCH (m)-[:PLAYED_IN]->(t:Tournament)
       WHERE p1 <> p2
       WITH m, t, collect(DISTINCT p1) + collect(DISTINCT p2) as players
       WHERE size(players) >= 2

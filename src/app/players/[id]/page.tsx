@@ -322,12 +322,15 @@ export default function PlayerDetailPage() {
                     </div>
                   )}
                 </div>
-                {(player.rank || player.ranking) && (
-                  <div className="text-right">
-                    <div className="text-6xl font-bold">#{player.rank || player.ranking}</div>
-                    <p className="text-green-100 text-lg">Current Ranking</p>
+                <div className="text-right">
+                  <div className="text-6xl font-bold">
+                    #{player.rank !== null && player.rank !== undefined ? player.rank : (player.ranking || 'N/A')}
                   </div>
-                )}
+                  <p className="text-green-100 text-lg">World Ranking</p>
+                  {player.rank === null && (
+                    <p className="text-xs text-green-200 mt-1">No tournament wins yet</p>
+                  )}
+                </div>
               </div>
             </div>
 
