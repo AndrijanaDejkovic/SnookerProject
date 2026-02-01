@@ -1,16 +1,8 @@
 import { NextApiRequest } from 'next';
 import { NextApiResponseServerIO } from '@/lib/websocket';
-import neo4j from 'neo4j-driver';
+import { neo4jDriver, database } from '@/lib/neo4j';
 import { redis } from '@/lib/redis';
 import { Server as SocketIOServer } from 'socket.io';
-
-const driver = neo4j.driver(
-  process.env.NEO4J_URI || 'bolt://localhost:7687',
-  neo4j.auth.basic(
-    process.env.NEO4J_USERNAME || 'neo4j',
-    process.env.NEO4J_PASSWORD || 'password'
-  )
-);
 
 // Store active simulations
 const activeSimulations = new Map<string, NodeJS.Timeout>();
@@ -29,9 +21,7 @@ async function simulateFrame(
   frameNumber: number,
   bestOf: number
 ) {
-  const session = driver.session({
-    database: process.env.NEO4J_DATABASE || 'neo4j'
-  });
+  const session = neo4jDriver.session({ database });
 
   try {
     const frameKey = `live:match:${matchId}:frame:${frameNumber}`;
@@ -228,9 +218,7 @@ async function simulateFrame(
 
 export default async function handler(req: NextApiRequest, res: NextApiResponseServerIO) {
   if (req.method === 'POST') {
-    const session = driver.session({
-      database: process.env.NEO4J_DATABASE || 'neo4j'
-    });
+    const session = neo4jDriver.session({ database });
 
     try {
       const { player1Id, player2Id, tournamentId, bestOf } = req.body;

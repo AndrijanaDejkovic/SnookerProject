@@ -1,14 +1,6 @@
 import { NextResponse } from 'next/server';
-import neo4j from 'neo4j-driver';
+import { neo4jDriver, database } from '@/lib/neo4j';
 import { redis } from '@/lib/redis';
-
-const driver = neo4j.driver(
-  process.env.NEO4J_URI || 'bolt://localhost:7687',
-  neo4j.auth.basic(
-    process.env.NEO4J_USERNAME || 'neo4j',
-    process.env.NEO4J_PASSWORD || 'password'
-  )
-);
 
 export async function PUT(request: Request) {
   try {
@@ -22,9 +14,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    const session = driver.session({
-      database: process.env.NEO4J_DATABASE || 'neo4j'
-    });
+    const session = neo4jDriver.session({ database });
 
     try {
       const setFields = [];
