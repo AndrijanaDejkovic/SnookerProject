@@ -1,0 +1,16 @@
+node_modules
+.git
+.turbo
+.next
+dist
+coverage
+*.md
+POSTMAN*.md
+LEADERBOARD*.md
+LIVE_MATCH*.md
+SNOOKER_APP*.md
+API_*.md
+test-*.ps1
+test-*.sh
+test-*.mjs
+test-*.js
